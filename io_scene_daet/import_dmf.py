@@ -231,10 +231,10 @@ def create_materials(f:BufferedReader,
 
 			params[param_key] = param_value
 		
-		print(f"{material_name}:{shader_class}")
-		for k, v in enumerate(tex_slots):
-			print(f"\t{k}={v}")
-		print(f"\tparams={params}")
+		# print(f"{material_name}:{shader_class}")
+		# for k, v in enumerate(tex_slots):
+		# 	print(f"\t{k}={v}")
+		# print(f"\tparams={params}")
 
 		if bpy.data.materials.get(material_name) is not None and not recreate_materials:
 			continue
@@ -385,7 +385,25 @@ def create_materials(f:BufferedReader,
 				node_tree.links.new(alpha_node.outputs["Alpha"], mult_node.inputs[1])
 
 			invert2_node = nodes.new("ShaderNodeInvert")
-			node_tree.links.new(mult_node.outputs["Value"], invert2_node.inputs["Color"])
+
+			gamma = None
+
+			if params.get("mask_gamma_end") is not None:
+				gamma = params.get("mask_gamma_end")
+			elif params.get("mask_gamma_start") is not None:
+				gamma = params.get("mask_gamma_start")
+			
+
+			if gamma is not None:
+				gamma_node = nodes.new("ShaderNodeGamma")
+				gamma_node.inputs["Gamma"].default_value = float(gamma) * 2
+
+				out_node = gamma_node.outputs["Color"]
+				node_tree.links.new(mult_node.outputs["Value"], gamma_node.inputs["Color"])
+			else:
+				out_node = mult_node.outputs["Value"]
+
+			node_tree.links.new(out_node, invert2_node.inputs["Color"])
 		# elif masked:
 		# 	invert2_node = nodes.new("ShaderNodeInvert")
 		# 	node_tree.links.new(diffuse_node.outputs["Alpha"], invert_node.inputs["Color"])

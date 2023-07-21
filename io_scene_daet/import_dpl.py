@@ -10,13 +10,12 @@ from traceback import format_exc
 from .import_dmf import load as load_dmf
 
 MERGE_DISTANCE = 0.001
-DECIMATE_RATIO = 0.4
 
 def get_assets_dir(filepath:str):
 	return path.join(path.dirname(filepath), get_file_name(filepath) + "_props")
 
 
-def optimize_object(ob:bpy.types.Object):
+def optimize_object(ob:bpy.types.Object, decimate_ratio:float):
 	bpy.context.view_layer.objects.active = ob
 	
 	bpy.ops.object.mode_set(mode = "EDIT")
@@ -26,20 +25,21 @@ def optimize_object(ob:bpy.types.Object):
 	bmesh.update_edit_mesh(ob.data)
 	
 	bpy.ops.object.mode_set(mode = "OBJECT")
-	
-	decimateMod = ob.modifiers.new(name = "Decimate", type = "DECIMATE")
-	decimateMod.ratio = DECIMATE_RATIO
-	
-	bpy.ops.object.modifier_apply(modifier = decimateMod.name)
 
-def optimize_objects(objects:list):
+	if decimate_ratio != 1.0:
+		decimateMod = ob.modifiers.new(name = "Decimate", type = "DECIMATE")
+		decimateMod.ratio = decimate_ratio
+		
+		bpy.ops.object.modifier_apply(modifier = decimateMod.name)
+
+def optimize_objects(objects:list, decimate_ratio:float):
 	for k, ob in enumerate(objects):
 		ob:bpy.types.Object
 
 		if ob.type == "MESH":
 			print(f"[D] \tOptimizing {k + 1}/{len(objects)}: {ob.name}")
 
-			optimize_object(ob)
+			optimize_object(ob, decimate_ratio)
 
 
 def place_instance(objects:list, pos:tuple, matrix:tuple):
@@ -84,12 +84,14 @@ def skip_model(f:BufferedReader, pos_matrix_cnt:int):
 
 
 def load(filepath:str, 
-	 max_occurences_cnt:int = 10000, 
+	 max_occurences_cnt:int = 10000,
+	 skip_max_occurences:bool = True,
 	 optimize_models:bool = True,
 	 random_viewport_color:bool = True, 
 	 recreate_materials:bool = False, 
 	 import_textures:bool = True,
-	 disable_autosave:bool = True):
+	 disable_autosave:bool = True,
+	 decimate_ratio:float = 0.4):
 
 	if disable_autosave:
 		pref = bpy.context.preferences
@@ -132,7 +134,7 @@ def load(filepath:str,
 				skip_model(f, pos_matrix_cnt)
 
 				continue
-			elif pos_matrix_cnt >= max_occurences_cnt:
+			elif pos_matrix_cnt >= max_occurences_cnt and skip_max_occurences:
 				print(f"Skipping {ent_name}: model has {pos_matrix_cnt} occurences (max {max_occurences_cnt})")
 
 				skip_model(f, pos_matrix_cnt)
@@ -162,7 +164,7 @@ def load(filepath:str,
 				continue
 			
 			if optimize_models:
-				optimize_objects(selected_objects)
+				optimize_objects(selected_objects, decimate_ratio)
 	
 			for i in range(pos_matrix_cnt):
 				print(f"[D] \tProcessing {i + 1}/{pos_matrix_cnt} ({idx}/{ent_cnt})") 
@@ -170,9 +172,12 @@ def load(filepath:str,
 				pos, matrix = get_pos_matrix(f)
 
 				place_instance(selected_objects, pos, matrix)
-			
-			remove_objects(selected_objects)
 
+				if i >= max_occurences_cnt:
+					print(f"[D] \tSkipping other occurences (max occurences reached)")
+
+					skip_model(f, max_occurences_cnt - i) 
+			
 			bpy.ops.object.select_all(action='DESELECT')
 
 	view_layer.update()

@@ -118,13 +118,18 @@ class Skeleton:
 		return self.__armature_obj
 
 class DetailTexture:
-	def __init__(self, diffuse:str = None, normal:str = None):
+	def __init__(self, idx:int, diffuse:str = None, normal:str = None):
+		self.__idx = idx
 		self.__diffuse = diffuse
 		self.__normal = normal
 
 	@property
 	def diffuse(self):
 		return self.__diffuse
+
+	@property
+	def idx(self):
+		return self.__idx
 
 	@property
 	def normal(self):
@@ -149,17 +154,28 @@ def set_skeleton_transform(skeleton:Skeleton):
 	skeleton.armature_obj.scale = OBJECT_SCALE
 	skeleton.armature_obj.rotation_euler = OBJECT_ROT
 
+def get_scale(scale:str):
+	if scale is None:
+		return 1.0
+	else:
+		return 1 / float(scale)
 
-def create_camo_node(nodes:bpy.types.Nodes, node_tree:bpy.types.NodeTree):
+
+def create_mapping_node(nodes:bpy.types.Nodes, 
+			node_tree:bpy.types.NodeTree, 
+			image_node:bpy.types.Node,
+			scale_u:str = None,
+			scale_v:str = None):
+	
+	scale_u = get_scale(scale_u)
+	scale_v = get_scale(scale_v)
+
 	texcoor_node = nodes.new("ShaderNodeTexCoord")
 	mapping_node = nodes.new("ShaderNodeMapping")
+	mapping_node.inputs["Scale"].default_value = Vector((scale_u, scale_v, 1.0))
+	
 	node_tree.links.new(texcoor_node.outputs["UV"], mapping_node.inputs["Vector"])
-
-	camo_node = nodes.new("ShaderNodeTexImage")
-
-	node_tree.links.new(mapping_node.outputs["Vector"], camo_node.inputs["Vector"])
-
-	return camo_node
+	node_tree.links.new(mapping_node.outputs["Vector"], image_node.inputs["Vector"])
 
 
 def create_normal_node(nodes, node_tree, principled_bsdf):
@@ -232,6 +248,8 @@ def create_materials(f:BufferedReader,
 		alpha = None
 		mask = None
 
+		diffuse_is_detail1 = False
+
 		if shader_class == "rendinst_tree_colored":
 			alpha = get_tex_from_slots(tex_slots, 1)
 		elif shader_class == "rendinst_simple_layered":
@@ -261,12 +279,15 @@ def create_materials(f:BufferedReader,
 
 				detail_normal = get_tex_from_slots(tex_slots, i + 1)
 
-				detail_tex = DetailTexture(detail_diffuse, detail_normal)
+				detail_tex = DetailTexture(i, detail_diffuse, detail_normal)
 				detail.append(detail_tex)
 			
 			if layered and len(detail) >= 1:
 				diffuse = detail[0].diffuse
+				normal = detail[0].normal if detail[0].normal is not None else ""
 				detail = detail[1:]
+
+				diffuse_is_detail1 = True
 
 
 		material = bpy.data.materials.new(name=material_name)
@@ -294,18 +315,29 @@ def create_materials(f:BufferedReader,
 		diffuse_node = nodes.new("ShaderNodeTexImage")
 		if diffuse_texture is not None:
 			diffuse_node.image = diffuse_texture
+
+		if diffuse_is_detail1:
+			create_mapping_node(nodes,
+		       node_tree,
+			   diffuse_node,
+			   params.get("detail1_tile_u"),
+			   params.get("detail1_tile_v"))
 		
 
 		node_tree.links.new(diffuse_node.outputs["Color"], principled_bsdf.inputs["Base Color"])
 		
 		normal_texture = get_texture(texture_dir, normal) if import_textures else None
-		
 
 		camo_node = None
 		masked = mask is not None
 		
 		if masked:
-			camo_node = create_camo_node(nodes, node_tree)
+			camo_node = nodes.new("ShaderNodeTexImage")
+			create_mapping_node(nodes, 
+		       node_tree, 
+			   camo_node, 
+			   params.get("mask_tile_u"),
+			   params.get("mask_tile_v"))
 			camo_texture = get_texture(texture_dir, mask) if import_textures else None
 			
 			if camo_texture is not None:
@@ -325,6 +357,13 @@ def create_materials(f:BufferedReader,
 		
 		if normal_texture is not None:
 			normal_node.image = normal_texture
+		
+		if diffuse_is_detail1:
+			create_mapping_node(nodes,
+		       node_tree,
+			   normal_node,
+			   params.get("detail1_tile_u"),
+			   params.get("detail1_tile_v"))
 
 		if masked:
 			invert_node = nodes.new("ShaderNodeInvert")
@@ -375,6 +414,12 @@ def create_materials(f:BufferedReader,
 			detail_diffuse_node = nodes.new("ShaderNodeTexImage")
 			detail_diffuse = get_texture(texture_dir, detail_tex.diffuse) if import_textures else None
 			
+			create_mapping_node(nodes, 
+		       node_tree, 
+			   detail_diffuse_node, 
+			   params.get(f"detail{detail_tex.idx}_tile_u"),
+			   params.get(f"detail{detail_tex.idx}_tile_v"))
+			
 			if detail_diffuse is not None:
 				detail_diffuse_node.image = detail_diffuse
 			
@@ -389,6 +434,12 @@ def create_materials(f:BufferedReader,
 				
 				if detail_normal is not None:
 					detail_normal_node.image = detail_normal
+
+				create_mapping_node(nodes, 
+					node_tree, 
+					detail_normal_node, 
+					params.get(f"detail{detail_tex.idx}_tile_u"),
+					params.get(f"detail{detail_tex.idx}_tile_v"))
 				
 				node_tree.links.new(detail_diffuse_node.outputs["Color"], detail_bsdf.inputs["Base Color"])
 				shader_out = detail_bsdf.outputs["BSDF"]

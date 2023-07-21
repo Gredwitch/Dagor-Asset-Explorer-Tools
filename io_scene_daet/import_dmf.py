@@ -4,7 +4,7 @@ from io import BufferedReader, BytesIO
 from struct import unpack
 from math import radians
 from mathutils import Matrix, Vector
-from .common import get_file_name, readInt, readString
+from .common import get_file_name, readInt, readString, deselect_all
 from random import random
 
 DMF_MAGIC = b"DMF\0"
@@ -182,6 +182,18 @@ def create_materials(f:BufferedReader,
 
 		if bpy.data.materials.get(material_name) is not None and not recreate_materials:
 			continue
+
+		if material_class == "rendinst_layered":
+			if len(detail) >= 2:
+				masked = True
+
+				diffuse = detail[0]
+				mask = detail[1]
+
+				if len(detail_normal) >= 1:
+					normal = detail_normal[1]
+
+					# TODO: mask normal?
 
 		material = bpy.data.materials.new(name=material_name)
 
@@ -406,7 +418,7 @@ def set_object_transform(ob:bpy.types.Object, skeleton:Skeleton, apply_scale:boo
 
 
 			bpy.ops.object.mode_set(mode='OBJECT')
-			bpy.ops.object.select_all(action='DESELECT')
+			deselect_all()
 
 			armature_obj.select_set(True)
 			bpy.context.view_layer.objects.active = armature_obj
@@ -416,7 +428,7 @@ def set_object_transform(ob:bpy.types.Object, skeleton:Skeleton, apply_scale:boo
 			
 			bpy.ops.object.mode_set(mode='OBJECT')
 
-			bpy.ops.object.select_all(action='DESELECT')
+			deselect_all()
 			ob.select_set(True)
 			armature_obj.select_set(True)
 			bpy.context.view_layer.objects.active = armature_obj

@@ -5,7 +5,7 @@ from io import BufferedReader, BytesIO
 from struct import unpack
 from math import radians
 from mathutils import Matrix, Vector
-from .common import readInt, readString, get_file_name
+from .common import readInt, readString, get_file_name, deselect_all
 from traceback import format_exc
 from .import_dmf import load as load_dmf
 
@@ -178,7 +178,8 @@ def load(filepath:str,
 
 					skip_model(f, max_occurences_cnt - i) 
 			
-			bpy.ops.object.select_all(action='DESELECT')
+			remove_objects(selected_objects)
+			deselect_all()
 
 	view_layer.update()
 

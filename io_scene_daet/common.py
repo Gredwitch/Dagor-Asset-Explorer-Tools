@@ -1,4 +1,5 @@
 
+import bpy
 from os import path
 from io import BufferedReader
 
@@ -12,3 +13,7 @@ def readString(f:BufferedReader):
 
 def get_file_name(filepath:str):
 	return path.splitext(path.basename(filepath))[0]
+
+def deselect_all():
+	for ob in bpy.context.selected_objects:
+		ob.select_set(False)

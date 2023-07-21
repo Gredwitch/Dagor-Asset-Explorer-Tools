@@ -18,6 +18,13 @@ OBJECT_ROT = Vector((radians(90), radians(0), radians(-90)))
 # OBJECT_ROT = Vector((radians(0), radians(0), radians(0)))
 
 TEXTURE_EXTENSION = ".dds"
+TEXTURE_SLOT_COUNT = 11
+
+def get_tex_from_slots(tex_slots:list, id:int):
+	if tex_slots[id] == "":
+		return None
+	else:
+		return tex_slots[id]
 
 def get_texture_dir(filepath:str):
 	return path.join(path.dirname(filepath), "textures")
@@ -26,6 +33,9 @@ def get_texture_path(texture_dir:str, filename:str):
 	return path.join(texture_dir, filename)
 
 def get_texture(texture_dir:str, texture_name:str):
+	if texture_name is None:
+		texture_name = ""
+	
 	filename = texture_name.split("*")[0] + TEXTURE_EXTENSION
 	
 	image = bpy.data.images.get(filename)
@@ -107,6 +117,22 @@ class Skeleton:
 	def armature_obj(self):
 		return self.__armature_obj
 
+class DetailTexture:
+	def __init__(self, diffuse:str = None, normal:str = None):
+		self.__diffuse = diffuse
+		self.__normal = normal
+
+	@property
+	def diffuse(self):
+		return self.__diffuse
+
+	@property
+	def normal(self):
+		return self.__normal
+
+	@property
+	def is_none(self):
+		return self.diffuse is None and self.normal is None
 
 def load_skeleton(f:BufferedReader, ofs:int, name:str):
 	if ofs != 0:
@@ -135,6 +161,33 @@ def create_camo_node(nodes:bpy.types.Nodes, node_tree:bpy.types.NodeTree):
 
 	return camo_node
 
+
+def create_normal_node(nodes, node_tree, principled_bsdf):
+	normal_node = nodes.new("ShaderNodeTexImage")
+	
+	color_node = nodes.new("ShaderNodeValToRGB")
+	color_node.color_ramp.elements[0].color = (1.0, 1.0, 1.0, 1.0)
+	color_node.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)
+
+	separate_rgb_node = nodes.new("ShaderNodeSeparateRGB")
+	node_tree.links.new(normal_node.outputs["Color"], separate_rgb_node.inputs["Image"])
+	node_tree.links.new(separate_rgb_node.outputs["B"], principled_bsdf.inputs["Metallic"])
+
+	combine_rgb_node = nodes.new("ShaderNodeCombineRGB")
+	node_tree.links.new(normal_node.outputs["Alpha"], combine_rgb_node.inputs["R"])
+	node_tree.links.new(separate_rgb_node.outputs["G"], combine_rgb_node.inputs["G"])
+	node_tree.links.new(color_node.outputs["Color"], combine_rgb_node.inputs["B"])
+	
+	normalmap_node = nodes.new("ShaderNodeNormalMap")
+	node_tree.links.new(combine_rgb_node.outputs["Image"], normalmap_node.inputs["Color"])
+	node_tree.links.new(normalmap_node.outputs["Normal"], principled_bsdf.inputs["Normal"])
+
+	invert_node = nodes.new("ShaderNodeInvert")
+	node_tree.links.new(normal_node.outputs["Alpha"], invert_node.inputs["Color"])
+	node_tree.links.new(invert_node.outputs["Color"], principled_bsdf.inputs["Specular"])
+
+	return normal_node, separate_rgb_node
+
 def create_materials(f:BufferedReader, 
 		     texture_dir:str, 
 			 random_viewport_color:bool, 
@@ -144,23 +197,14 @@ def create_materials(f:BufferedReader,
 	
 	for _ in range(material_count):
 		material_name = readString(f)
-		material_class = readString(f)
+		shader_class = readString(f)
 
-		masked = material_class.find("masked") != -1
-
-		two_sided = readInt(f) == 1
 		diff = unpack("ffff", f.read(0x10))
 		amb = unpack("ffff", f.read(0x10))
 		emis = unpack("ffff", f.read(0x10))
 		spec = unpack("ffff", f.read(0x10))
 
-		diffuse = readString(f)
-		normal = readString(f)
-		ambient_occlusion = readString(f)
-		mask = readString(f)
-
-		detail = [readString(f) for _ in range(readInt(f))]
-		detail_normal = [readString(f) for _ in range(readInt(f))]
+		tex_slots = [readString(f) for _ in range(TEXTURE_SLOT_COUNT)]
 
 		params = {}
 		param_count = readInt(f)
@@ -171,35 +215,66 @@ def create_materials(f:BufferedReader,
 
 			params[param_key] = param_value
 		
-		# print(f"{material_name}:{material_class}")
-		# print(f"\tdiffuse={diffuse}")
-		# print(f"\tnormal={normal}")
-		# print(f"\tao={ambient_occlusion}")
-		# print(f"\tmask={mask}")
-		# print(f"\tdetail={detail}")
-		# print(f"\tdetail_normal={detail_normal}")
-		# print(f"\tparams={params}")
+		print(f"{material_name}:{shader_class}")
+		for k, v in enumerate(tex_slots):
+			print(f"\t{k}={v}")
+		print(f"\tparams={params}")
 
 		if bpy.data.materials.get(material_name) is not None and not recreate_materials:
 			continue
+		
+		detail:list[DetailTexture] = []
 
-		if material_class == "rendinst_layered":
-			if len(detail) >= 2:
-				masked = True
+		diffuse = get_tex_from_slots(tex_slots, 0)
+		normal = get_tex_from_slots(tex_slots, 2)
 
-				diffuse = detail[0]
-				mask = detail[1]
+		ao = None
+		alpha = None
+		mask = None
 
-				if len(detail_normal) >= 1:
-					normal = detail_normal[1]
+		if shader_class == "rendinst_tree_colored":
+			alpha = get_tex_from_slots(tex_slots, 1)
+		elif shader_class == "rendinst_simple_layered":
+			detail_diffuse = get_tex_from_slots(tex_slots, 1)
+			detail_normal = get_tex_from_slots(tex_slots, 3)
 
-					# TODO: mask normal?
+			detail_tex = DetailTexture(detail_diffuse, detail_normal)
+			
+			detail.append(detail_tex)
+		else:
+			layered = shader_class.find("layered") != -1
+			dynamic = shader_class.find("dynamic") != -1
+
+			mask = get_tex_from_slots(tex_slots, 1)
+
+			if not dynamic or layered:
+				detailStart = 3
+			else:
+				ao = get_tex_from_slots(tex_slots, 3)
+				detailStart = 4
+			
+			for i in range(detailStart, TEXTURE_SLOT_COUNT, 2):
+				detail_diffuse = get_tex_from_slots(tex_slots, i)
+
+				if detail_diffuse is None:
+					continue
+
+				detail_normal = get_tex_from_slots(tex_slots, i + 1)
+
+				detail_tex = DetailTexture(detail_diffuse, detail_normal)
+				detail.append(detail_tex)
+			
+			if layered and len(detail) >= 1:
+				diffuse = detail[0].diffuse
+				detail = detail[1:]
+
 
 		material = bpy.data.materials.new(name=material_name)
 
 		if random_viewport_color:
 			material.diffuse_color = (random(), random(), random(), 1)
 
+		
 		material.use_nodes = True
 		# material.use_backface_culling = two_sided
 
@@ -211,7 +286,7 @@ def create_materials(f:BufferedReader,
 		material_output = nodes.new("ShaderNodeOutputMaterial")
 		principled_bsdf = nodes.new("ShaderNodeBsdfPrincipled")
 		principled_bsdf.inputs["Base Color"].default_value = diff
-		principled_bsdf.inputs["Emission"].default_value = emis
+		# principled_bsdf.inputs["Emission"].default_value = emis # some textures appear completely white with this
 		principled_bsdf.inputs["Roughness"].default_value = 1.0
 
 		diffuse_texture = get_texture(texture_dir, diffuse) if import_textures else None
@@ -227,6 +302,7 @@ def create_materials(f:BufferedReader,
 		
 
 		camo_node = None
+		masked = mask is not None
 		
 		if masked:
 			camo_node = create_camo_node(nodes, node_tree)
@@ -235,32 +311,20 @@ def create_materials(f:BufferedReader,
 			if camo_texture is not None:
 				camo_node.image = camo_texture
 		
+		alpha_node = None
+
+		if alpha is not None:
+			alpha_node = nodes.new("ShaderNodeTexImage")
+			alpha_texture = get_texture(texture_dir, alpha) if import_textures else None
+			
+			if alpha_texture is not None:
+				alpha_node.image = alpha_texture
+		
 		# if normal_texture is not None:
-		normal_node = nodes.new("ShaderNodeTexImage")
+		normal_node, separate_rgb_node = create_normal_node(nodes, node_tree, principled_bsdf)
 		
 		if normal_texture is not None:
 			normal_node.image = normal_texture
-
-		color_node = nodes.new("ShaderNodeValToRGB")
-		color_node.color_ramp.elements[0].color = (1.0, 1.0, 1.0, 1.0)
-		color_node.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)
-
-		separate_rgb_node = nodes.new("ShaderNodeSeparateRGB")
-		node_tree.links.new(normal_node.outputs["Color"], separate_rgb_node.inputs["Image"])
-		node_tree.links.new(separate_rgb_node.outputs["B"], principled_bsdf.inputs["Metallic"])
-
-		combine_rgb_node = nodes.new("ShaderNodeCombineRGB")
-		node_tree.links.new(normal_node.outputs["Alpha"], combine_rgb_node.inputs["R"])
-		node_tree.links.new(separate_rgb_node.outputs["G"], combine_rgb_node.inputs["G"])
-		node_tree.links.new(color_node.outputs["Color"], combine_rgb_node.inputs["B"])
-		
-		normalmap_node = nodes.new("ShaderNodeNormalMap")
-		node_tree.links.new(combine_rgb_node.outputs["Image"], normalmap_node.inputs["Color"])
-		node_tree.links.new(normalmap_node.outputs["Normal"], principled_bsdf.inputs["Normal"])
-
-		invert_node = nodes.new("ShaderNodeInvert")
-		node_tree.links.new(normal_node.outputs["Alpha"], invert_node.inputs["Color"])
-		node_tree.links.new(invert_node.outputs["Color"], principled_bsdf.inputs["Specular"])
 
 		if masked:
 			invert_node = nodes.new("ShaderNodeInvert")
@@ -275,7 +339,11 @@ def create_materials(f:BufferedReader,
 			mult_node = nodes.new("ShaderNodeMath")
 			mult_node.operation = "MULTIPLY"
 			node_tree.links.new(div_node.outputs["Value"], mult_node.inputs[0])
-			node_tree.links.new(diffuse_node.outputs["Alpha"], mult_node.inputs[1])
+
+			if alpha_node is None:
+				node_tree.links.new(diffuse_node.outputs["Alpha"], mult_node.inputs[1])
+			else:
+				node_tree.links.new(alpha_node.outputs["Alpha"], mult_node.inputs[1])
 
 			invert2_node = nodes.new("ShaderNodeInvert")
 			node_tree.links.new(mult_node.outputs["Value"], invert2_node.inputs["Color"])
@@ -289,13 +357,56 @@ def create_materials(f:BufferedReader,
 			node_tree.links.new(camo_node.outputs["Color"], mix_node.inputs[1])
 			node_tree.links.new(principled_bsdf.outputs["BSDF"], mix_node.inputs[2])
 
+			output_shader = mix_node.outputs["Shader"]
 			node_tree.links.new(mix_node.outputs["Shader"], material_output.inputs["Surface"])
 		else:
-			node_tree.links.new(diffuse_node.outputs["Alpha"], principled_bsdf.inputs["Alpha"])
-			
-			node_tree.links.new(principled_bsdf.outputs["BSDF"], material_output.inputs["Surface"])
+			mix_node = None
 
-		if material_class.find("atest") != -1:
+			if alpha_node is None:
+				node_tree.links.new(diffuse_node.outputs["Alpha"], principled_bsdf.inputs["Alpha"])
+			else:
+				node_tree.links.new(alpha_node.outputs["Alpha"], principled_bsdf.inputs["Alpha"])
+			
+			output_shader = principled_bsdf.outputs["BSDF"]
+		
+		# detail_mix_node = None
+
+		for detail_tex in detail:
+			detail_diffuse_node = nodes.new("ShaderNodeTexImage")
+			detail_diffuse = get_texture(texture_dir, detail_tex.diffuse) if import_textures else None
+			
+			if detail_diffuse is not None:
+				detail_diffuse_node.image = detail_diffuse
+			
+			if detail_tex.normal is not None:
+				detail_bsdf = nodes.new("ShaderNodeBsdfPrincipled")
+				detail_bsdf.inputs["Base Color"].default_value = diff
+				detail_bsdf.inputs["Emission"].default_value = emis
+				detail_bsdf.inputs["Roughness"].default_value = 1.0
+
+				detail_normal_node, detail_separate_rgb_node = create_normal_node(nodes, node_tree, detail_bsdf)
+				detail_normal = get_texture(texture_dir, detail_tex.normal) if import_textures else None
+				
+				if detail_normal is not None:
+					detail_normal_node.image = detail_normal
+				
+				node_tree.links.new(detail_diffuse_node.outputs["Color"], detail_bsdf.inputs["Base Color"])
+				shader_out = detail_bsdf.outputs["BSDF"]
+			else:
+				shader_out = detail_diffuse_node.outputs["Color"]
+			
+
+			detail_mix_node = nodes.new("ShaderNodeMixShader")
+			
+			node_tree.links.new(shader_out, detail_mix_node.inputs[1])
+			node_tree.links.new(output_shader, detail_mix_node.inputs[2])
+
+			output_shader = detail_mix_node.outputs["Shader"]
+
+		node_tree.links.new(output_shader, material_output.inputs["Surface"])
+		
+
+		if shader_class.find("atest") != -1:
 			... # TODO: make atest work
 
 
@@ -489,15 +600,14 @@ def load(filepath:str,
 		if skeleton is None and obj_count > 1:
 			skeleton = Skeleton(model_name) # create an empty skeleton to append our dynmodel's objects to
 			# if we are a rendinst then do not make a skeleton
-
+		
 		for _ in range(obj_count):
 			ob = create_object(f, verts, uvs)
 			
 			collection.objects.link(ob)
 			ob.select_set(True)
 			
-			if skeleton is not None:
-				set_object_transform(ob, skeleton, apply_scale)
+			set_object_transform(ob, skeleton, apply_scale)
 
 		if skeleton is not None and apply_scale:
 			set_skeleton_transform(skeleton)

@@ -14,8 +14,7 @@ MATRIX_TRANSLATE_ZERO = Matrix.Translation((0, 0, 0)).to_translation()
 MATRIX_TRANSLATE_ONE = Matrix.Translation((1 / 40, 0, 0)).to_translation()
 
 OBJECT_SCALE = Vector((-40, 40, 40))
-OBJECT_ROT = Vector((radians(90), radians(0), radians(-90)))
-# OBJECT_ROT = Vector((radians(0), radians(0), radians(0)))
+OBJECT_ROT = Vector((radians(90), radians(0), radians(180)))
 
 TEXTURE_EXTENSION = ".dds"
 TEXTURE_SLOT_COUNT = 11
@@ -151,8 +150,8 @@ def load_skeleton(f:BufferedReader, ofs:int, name:str):
 		return None
 
 def set_skeleton_transform(skeleton:Skeleton):
-	skeleton.armature_obj.scale = OBJECT_SCALE
-	skeleton.armature_obj.rotation_euler = OBJECT_ROT
+	set_object_scale(skeleton.armature_obj)
+	apply_object_transform(skeleton.armature_obj)
 
 def get_scale(scale:str):
 	if scale is None:
@@ -584,41 +583,68 @@ def create_object(f:BufferedReader, global_verts:tuple, global_uvs:tuple):
 	
 	return ob
 
+def apply_object_transform(ob:bpy.types.Object):
+	bpy.ops.object.mode_set(mode='OBJECT')
+	deselect_all()
+
+	bpy.context.view_layer.objects.active = ob
+	ob.select_set(True)
+	bpy.ops.object.transform_apply(scale=True)
+
+	deselect_all()
+
+def set_object_scale(ob:bpy.types.Object):
+	ob.scale = OBJECT_SCALE
+	ob.rotation_euler = OBJECT_ROT
+
+def set_bone_parent(ob, armature_obj, armature, bone_name):
+	bpy.ops.object.mode_set(mode='OBJECT')
+	deselect_all()
+
+	armature_obj.select_set(True)
+	bpy.context.view_layer.objects.active = armature_obj
+	
+	bpy.ops.object.mode_set(mode='EDIT')
+	armature.edit_bones.active = armature.edit_bones[bone_name]
+	
+	bpy.ops.object.mode_set(mode='OBJECT')
+
+	deselect_all()
+	ob.select_set(True)
+	armature_obj.select_set(True)
+	bpy.context.view_layer.objects.active = armature_obj
+
+	bpy.ops.object.parent_set(type='BONE', keep_transform=True)
+
 def set_object_transform(ob:bpy.types.Object, skeleton:Skeleton, apply_scale:bool):
 	obj_name = ob.name
+
 	
 	if skeleton is not None:
 		armature_obj = skeleton.armature_obj
+		armature = skeleton.armature
 
 		if skeleton.hasBone(obj_name):
-			armature = skeleton.armature
 
 			bone, wtm = skeleton.getBone(obj_name)
+			
 			ob.matrix_world = wtm
+			apply_object_transform(ob)
 
-
-			bpy.ops.object.mode_set(mode='OBJECT')
-			deselect_all()
-
-			armature_obj.select_set(True)
-			bpy.context.view_layer.objects.active = armature_obj
+			if apply_scale:
+				set_object_scale(ob)
+				apply_object_transform(ob)
 			
-			bpy.ops.object.mode_set(mode='EDIT')
-			armature.edit_bones.active = armature.edit_bones[obj_name]
-			
-			bpy.ops.object.mode_set(mode='OBJECT')
-
-			deselect_all()
-			ob.select_set(True)
-			armature_obj.select_set(True)
-			bpy.context.view_layer.objects.active = armature_obj
-
-			bpy.ops.object.parent_set(type='BONE', keep_transform=True)
+			set_bone_parent(ob, armature_obj, armature, obj_name)
 		else:
-			ob.parent = armature_obj
+			if apply_scale:
+				set_object_scale(ob)
+				apply_object_transform(ob)
+			
+			set_bone_parent(ob, armature_obj, armature, "Bone")
 	elif apply_scale:
-		ob.scale = OBJECT_SCALE
-		ob.rotation_euler = OBJECT_ROT
+		set_object_scale(ob)
+		apply_object_transform(ob)
 
 
 
@@ -670,6 +696,9 @@ def load(filepath:str,
 			skeleton = Skeleton(model_name) # create an empty skeleton to append our dynmodel's objects to
 			# if we are a rendinst then do not make a skeleton
 		
+		if skeleton is not None and apply_scale:
+			set_skeleton_transform(skeleton)
+		
 		for _ in range(obj_count):
 			ob = create_object(f, verts, uvs)
 			
@@ -678,8 +707,6 @@ def load(filepath:str,
 			
 			set_object_transform(ob, skeleton, apply_scale)
 
-		if skeleton is not None and apply_scale:
-			set_skeleton_transform(skeleton)
 
 	if update_viewlayer:
 		view_layer.update()

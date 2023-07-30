@@ -2,7 +2,7 @@
 bl_info = {
 	"name": "Dagor Asset Explorer Tools",
 	"author": "Quentin H.",
-	"version": (1, 1, 1),
+	"version": (1, 1, 2),
 	"blender": (2, 92, 0),
 	"category": "Import",
 	"location": "File > Import",

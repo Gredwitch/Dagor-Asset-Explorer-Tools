@@ -29,6 +29,3 @@ Installation instructions are available in the [Releases tab](https://github.com
 <div align="center">
 	<img src="https://i.imgur.com/7AKhQGL.png" alt="Screenshot of the main window in action" width="90%" />
 </div>
-
-## Known bugs
-- Shader graph generation does not implement a few shader classes (especially rendinst_layered)

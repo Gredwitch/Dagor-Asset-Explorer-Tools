@@ -11,7 +11,7 @@ DMF_MAGIC = b"DMF\0"
 DMF_NO_PARENT = 0
 
 MATRIX_TRANSLATE_ZERO = Matrix.Translation((0, 0, 0)).to_translation()
-MATRIX_TRANSLATE_ONE = Matrix.Translation((0, 0, 1 / 40)).to_translation()
+MATRIX_TRANSLATE_ONE = Matrix.Translation((1 / 40, 0, 0)).to_translation()
 
 OBJECT_SCALE = Vector((-40, 40, 40))
 OBJECT_ROT = Vector((radians(90), radians(0), radians(-90)))

@@ -4,6 +4,8 @@ Importer for Dagor Model Files (DMF) and Dagor Prop Layout (DPL) files generated
 
 *Currently only officially supports Blender 2.92*
 
+Installation instructions are available in the [Releases tab](https://github.com/Gredwitch/Dagor-Asset-Explorer-Tools/releases).
+
 <div align="center">
 	<img src="https://i.imgur.com/ZMqcL1z.png" alt="Screenshot of the main window in action" width="80%" />
 </div>

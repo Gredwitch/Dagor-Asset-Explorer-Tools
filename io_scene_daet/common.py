@@ -17,3 +17,8 @@ def get_file_name(filepath:str):
 def deselect_all():
 	for ob in bpy.context.selected_objects:
 		ob.select_set(False)
+
+
+def set_mode_safe(mode:str):
+	if bpy.context.mode != mode:
+		bpy.ops.object.mode_set(mode = mode)

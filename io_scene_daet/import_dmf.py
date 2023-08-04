@@ -4,10 +4,10 @@ from io import BufferedReader, BytesIO
 from struct import unpack
 from math import radians
 from mathutils import Matrix, Vector
-from .common import get_file_name, readInt, readString, deselect_all
+from .common import get_file_name, readInt, readString, deselect_all, set_mode_safe
 from random import random
 
-DMF_MAGIC = b"DMF\0"
+DMF_MAGIC = b"DMF\x01"
 DMF_NO_PARENT = 0
 
 MATRIX_TRANSLATE_ZERO = Matrix.Translation((0, 0, 0)).to_translation()
@@ -51,18 +51,23 @@ class Skeleton:
 	def __init__(self, skeleton_name:str):
 		self.__bones_by_name:dict[str, tuple[bpy.types.Bone, Matrix]] = {}
 
+		set_mode_safe("OBJECT")
+
 		self.__armature = bpy.data.armatures.new(f"{skeleton_name}_Armature")
 		self.__armature_obj = bpy.data.objects.new(f"{skeleton_name}_ArmatureObject", self.__armature)
+
+		bpy.context.collection.objects.link(self.__armature_obj)
 	
 	def create_bones(self, f:BufferedReader):
+		set_mode_safe("OBJECT")
+
 		armature = self.__armature
 		armature_obj = self.__armature_obj
-
-		bpy.context.collection.objects.link(armature_obj)
-		bpy.context.view_layer.objects.active = armature_obj
+		
 		armature_obj.select_set(True)
+		bpy.context.view_layer.objects.active = armature_obj
 
-		bpy.ops.object.mode_set(mode='EDIT')
+		bpy.ops.object.mode_set(mode = "EDIT")
 
 		node_count = readInt(f)
 
@@ -96,7 +101,7 @@ class Skeleton:
 
 				bone.parent = parent_bone
 		
-		bpy.ops.object.mode_set(mode='OBJECT')
+		bpy.ops.object.mode_set(mode = "OBJECT")
 	
 	
 	def getBone(self, name:str):
@@ -572,6 +577,7 @@ def assign_material(mesh:bpy.types.Mesh, material:bpy.types.Material, start_idx:
 
 def create_object(f:BufferedReader, global_verts:tuple, global_uvs:tuple):
 	obj_name = readString(f)
+	skinned = readInt(f) == 1
 	
 	mesh = create_mesh(f, obj_name, global_verts, global_uvs)
 	assign_mesh_materials(f, mesh)
@@ -581,14 +587,16 @@ def create_object(f:BufferedReader, global_verts:tuple, global_uvs:tuple):
 	
 	ob = bpy.data.objects.new(obj_name, mesh)
 	
-	return ob
+	return ob, skinned
 
 def apply_object_transform(ob:bpy.types.Object):
-	bpy.ops.object.mode_set(mode='OBJECT')
+	set_mode_safe("OBJECT")
+	
 	deselect_all()
 
 	bpy.context.view_layer.objects.active = ob
 	ob.select_set(True)
+
 	bpy.ops.object.transform_apply(scale=True)
 
 	deselect_all()
@@ -598,25 +606,26 @@ def set_object_scale(ob:bpy.types.Object):
 	ob.rotation_euler = OBJECT_ROT
 
 def set_bone_parent(ob, armature_obj, armature, bone_name):
-	bpy.ops.object.mode_set(mode='OBJECT')
+	set_mode_safe("OBJECT")
+	
 	deselect_all()
 
-	armature_obj.select_set(True)
 	bpy.context.view_layer.objects.active = armature_obj
+	armature_obj.select_set(True)
 	
-	bpy.ops.object.mode_set(mode='EDIT')
+	bpy.ops.object.mode_set(mode = "EDIT")
 	armature.edit_bones.active = armature.edit_bones[bone_name]
 	
-	bpy.ops.object.mode_set(mode='OBJECT')
+	bpy.ops.object.mode_set(mode = "OBJECT")
 
 	deselect_all()
+	bpy.context.view_layer.objects.active = armature_obj
 	ob.select_set(True)
 	armature_obj.select_set(True)
-	bpy.context.view_layer.objects.active = armature_obj
 
-	bpy.ops.object.parent_set(type='BONE', keep_transform=True)
+	bpy.ops.object.parent_set(type = "BONE", keep_transform=True)
 
-def set_object_transform(ob:bpy.types.Object, skeleton:Skeleton, apply_scale:bool):
+def set_object_transform(ob:bpy.types.Object, skeleton:Skeleton, apply_scale:bool, skinned:bool):
 	obj_name = ob.name
 
 	
@@ -625,11 +634,11 @@ def set_object_transform(ob:bpy.types.Object, skeleton:Skeleton, apply_scale:boo
 		armature = skeleton.armature
 
 		if skeleton.hasBone(obj_name):
-
-			bone, wtm = skeleton.getBone(obj_name)
-			
-			ob.matrix_world = wtm
-			apply_object_transform(ob)
+			if not skinned:
+				bone, wtm = skeleton.getBone(obj_name)
+				
+				ob.matrix_world = wtm
+				apply_object_transform(ob)
 
 			if apply_scale:
 				set_object_scale(ob)
@@ -677,6 +686,7 @@ def load(filepath:str,
 		 random_viewport_color, 
 		 recreate_materials,
 		 import_textures)
+
 		skeleton = load_skeleton(f, ske_ofs, model_name)
 
 		# main part
@@ -695,17 +705,30 @@ def load(filepath:str,
 		if skeleton is None and obj_count > 1:
 			skeleton = Skeleton(model_name) # create an empty skeleton to append our dynmodel's objects to
 			# if we are a rendinst then do not make a skeleton
+			
+			set_mode_safe("OBJECT")
+			deselect_all()
+
+			skeleton.armature_obj.select_set(True)
+			bpy.context.view_layer.objects.active = skeleton.armature_obj
+
+			bpy.ops.object.mode_set(mode = "EDIT")
+			
+			bone = skeleton.armature.edit_bones.new("Bone")
+			bone.head = MATRIX_TRANSLATE_ZERO
+			bone.tail = MATRIX_TRANSLATE_ONE
+
+			bpy.ops.object.mode_set(mode = "OBJECT")
 		
 		if skeleton is not None and apply_scale:
 			set_skeleton_transform(skeleton)
 		
 		for _ in range(obj_count):
-			ob = create_object(f, verts, uvs)
+			ob, skinned = create_object(f, verts, uvs)
 			
 			collection.objects.link(ob)
-			ob.select_set(True)
 			
-			set_object_transform(ob, skeleton, apply_scale)
+			set_object_transform(ob, skeleton, apply_scale, skinned)
 
 
 	if update_viewlayer:

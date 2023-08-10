@@ -605,7 +605,7 @@ def set_object_scale(ob:bpy.types.Object):
 	ob.scale = OBJECT_SCALE
 	ob.rotation_euler = OBJECT_ROT
 
-def set_bone_parent(ob, armature_obj, armature, bone_name):
+def set_bone_parent(ob, armature_obj, armature, bone_name, relative_parenting):
 	set_mode_safe("OBJECT")
 	
 	deselect_all()
@@ -622,13 +622,17 @@ def set_bone_parent(ob, armature_obj, armature, bone_name):
 	bpy.context.view_layer.objects.active = armature_obj
 	ob.select_set(True)
 	armature_obj.select_set(True)
+	
+	if relative_parenting:
+		parent_type = "BONE_RELATIVE"
+	else:
+		parent_type = "BONE"
+	
+	bpy.ops.object.parent_set(type = parent_type, keep_transform=True)
 
-	bpy.ops.object.parent_set(type = "BONE", keep_transform=True)
-
-def set_object_transform(ob:bpy.types.Object, skeleton:Skeleton, apply_scale:bool, skinned:bool):
+def set_object_transform(ob:bpy.types.Object, skeleton:Skeleton, apply_scale:bool, skinned:bool, relative_parenting:bool):
 	obj_name = ob.name
 
-	
 	if skeleton is not None:
 		armature_obj = skeleton.armature_obj
 		armature = skeleton.armature
@@ -644,13 +648,13 @@ def set_object_transform(ob:bpy.types.Object, skeleton:Skeleton, apply_scale:boo
 				set_object_scale(ob)
 				apply_object_transform(ob)
 			
-			set_bone_parent(ob, armature_obj, armature, obj_name)
+			set_bone_parent(ob, armature_obj, armature, obj_name, relative_parenting)
 		else:
 			if apply_scale:
 				set_object_scale(ob)
 				apply_object_transform(ob)
 			
-			set_bone_parent(ob, armature_obj, armature, "Bone")
+			set_bone_parent(ob, armature_obj, armature, "Bone", relative_parenting)
 	elif apply_scale:
 		set_object_scale(ob)
 		apply_object_transform(ob)
@@ -662,6 +666,7 @@ def load(filepath:str,
 	 random_viewport_color = True, 
 	 recreate_materials = False, 
 	 import_textures = True,
+	 relative_parenting = True,
 	 update_viewlayer = True):
 	model_name = get_file_name(filepath)
 	texture_dir = get_texture_dir(filepath)
@@ -728,7 +733,7 @@ def load(filepath:str,
 			
 			collection.objects.link(ob)
 			
-			set_object_transform(ob, skeleton, apply_scale, skinned)
+			set_object_transform(ob, skeleton, apply_scale, skinned, relative_parenting)
 
 
 	if update_viewlayer:

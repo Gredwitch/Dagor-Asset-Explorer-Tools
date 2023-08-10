@@ -2,7 +2,7 @@
 bl_info = {
 	"name": "Dagor Asset Explorer Tools",
 	"author": "Quentin H.",
-	"version": (1, 1, 3),
+	"version": (1, 1, 4),
 	"blender": (2, 92, 0),
 	"category": "Import",
 	"location": "File > Import",
@@ -40,6 +40,12 @@ class ImportDMF(bpy.types.Operator, ImportHelper):
 	apply_scale: BoolProperty(
 		name = "Fix transform",
 		description = "Scale model by (-40, 40, 40) and rotate them by (90, 0, -90)",
+		default = True,
+	)
+	
+	relative_parenting: BoolProperty(
+		name = "Relative parenting",
+		description = "Parent objects to 'Bone Relative' instead of 'Bone'",
 		default = True,
 	)
 	
@@ -123,6 +129,7 @@ class DMF_PT_import_transform(bpy.types.Panel):
 		operator = sfile.active_operator
 
 		layout.prop(operator, "apply_scale")
+		layout.prop(operator, "relative_parenting")
 
 
 

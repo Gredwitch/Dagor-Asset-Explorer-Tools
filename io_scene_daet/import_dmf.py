@@ -275,23 +275,24 @@ def create_materials(f:BufferedReader,
 				ao = get_tex_from_slots(tex_slots, 3)
 				detailStart = 4
 			
-			for i in range(detailStart, TEXTURE_SLOT_COUNT, 2):
-				detail_diffuse = get_tex_from_slots(tex_slots, i)
+			if shader_class != "dynamic_painted_by_mask":
+				for i in range(detailStart, TEXTURE_SLOT_COUNT, 2):
+					detail_diffuse = get_tex_from_slots(tex_slots, i)
 
-				if detail_diffuse is None:
-					continue
+					if detail_diffuse is None:
+						continue
 
-				detail_normal = get_tex_from_slots(tex_slots, i + 1)
+					detail_normal = get_tex_from_slots(tex_slots, i + 1)
 
-				detail_tex = DetailTexture(i, detail_diffuse, detail_normal)
-				detail.append(detail_tex)
+					detail_tex = DetailTexture(i, detail_diffuse, detail_normal)
+					detail.append(detail_tex)
 			
-			if layered and len(detail) >= 1:
-				diffuse = detail[0].diffuse
-				normal = detail[0].normal if detail[0].normal is not None else ""
-				detail = detail[1:]
+				if layered and len(detail) >= 1:
+					diffuse = detail[0].diffuse
+					normal = detail[0].normal if detail[0].normal is not None else ""
+					detail = detail[1:]
 
-				diffuse_is_detail1 = True
+					diffuse_is_detail1 = True
 
 
 		material = bpy.data.materials.new(name=material_name)

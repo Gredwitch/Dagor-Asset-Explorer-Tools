@@ -480,7 +480,7 @@ def create_materials(f:BufferedReader,
 		
 
 		if shader_class.find("atest") != -1:
-			... # TODO: make atest work
+			material.blend_method = "CLIP"
 
 
 def load_materials(f:BufferedReader, 

@@ -333,9 +333,9 @@ def create_materials(f:BufferedReader,
 		normal_texture = get_texture(texture_dir, normal) if import_textures else None
 
 		camo_node = None
-		masked = mask is not None
+		hasMask = mask is not None
 		
-		if masked:
+		if hasMask:
 			camo_node = nodes.new("ShaderNodeTexImage")
 			create_mapping_node(nodes, 
 		       node_tree, 
@@ -369,7 +369,7 @@ def create_materials(f:BufferedReader,
 			   params.get("detail1_tile_u"),
 			   params.get("detail1_tile_v"))
 
-		if masked:
+		if hasMask:
 			invert_node = nodes.new("ShaderNodeInvert")
 			node_tree.links.new(separate_rgb_node.outputs["B"], invert_node.inputs["Color"])
 
@@ -412,7 +412,7 @@ def create_materials(f:BufferedReader,
 		# 	invert2_node = nodes.new("ShaderNodeInvert")
 		# 	node_tree.links.new(diffuse_node.outputs["Alpha"], invert_node.inputs["Color"])
 
-		if masked:
+		if hasMask:
 			mix_node = nodes.new("ShaderNodeMixShader")
 			node_tree.links.new(invert2_node.outputs["Color"], mix_node.inputs["Fac"])
 			node_tree.links.new(camo_node.outputs["Color"], mix_node.inputs[1])
@@ -424,9 +424,16 @@ def create_materials(f:BufferedReader,
 			mix_node = None
 
 			if alpha_node is None:
-				node_tree.links.new(diffuse_node.outputs["Alpha"], principled_bsdf.inputs["Alpha"])
+				alpha_output = diffuse_node.outputs["Alpha"]
 			else:
-				node_tree.links.new(alpha_node.outputs["Alpha"], principled_bsdf.inputs["Alpha"])
+				alpha_output = alpha_node.outputs["Alpha"]
+			
+			if shader_class.find("masked") != -1:
+				invert_alpha_node = nodes.new("ShaderNodeInvert")
+				node_tree.links.new(alpha_output, invert_alpha_node.inputs["Color"])
+				alpha_output = invert_alpha_node.outputs["Color"]
+			
+			node_tree.links.new(alpha_output, principled_bsdf.inputs["Alpha"])
 			
 			output_shader = principled_bsdf.outputs["BSDF"]
 		

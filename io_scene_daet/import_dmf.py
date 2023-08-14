@@ -7,7 +7,7 @@ from mathutils import Matrix, Vector
 from .common import get_file_name, readInt, readString, deselect_all, set_mode_safe
 from random import random
 
-DMF_MAGIC = b"DMF\x01"
+DMF_MAGIC = b"DMF\x02"
 DMF_NO_PARENT = 0
 
 MATRIX_TRANSLATE_ZERO = Matrix.Translation((0, 0, 0)).to_translation()
@@ -209,7 +209,7 @@ def create_normal_node(nodes, node_tree, principled_bsdf):
 	return normal_node, separate_rgb_node
 
 def create_materials(f:BufferedReader, 
-		     texture_dir:str, 
+			 texture_dir:str, 
 			 random_viewport_color:bool, 
 			 recreate_materials:bool,
 			 import_textures:bool):
@@ -323,7 +323,7 @@ def create_materials(f:BufferedReader,
 
 		if diffuse_is_detail1:
 			create_mapping_node(nodes,
-		       node_tree,
+			   node_tree,
 			   diffuse_node,
 			   params.get("detail1_tile_u"),
 			   params.get("detail1_tile_v"))
@@ -339,7 +339,7 @@ def create_materials(f:BufferedReader,
 		if hasMask:
 			camo_node = nodes.new("ShaderNodeTexImage")
 			create_mapping_node(nodes, 
-		       node_tree, 
+			   node_tree, 
 			   camo_node, 
 			   params.get("mask_tile_u"),
 			   params.get("mask_tile_v"))
@@ -365,7 +365,7 @@ def create_materials(f:BufferedReader,
 		
 		if diffuse_is_detail1:
 			create_mapping_node(nodes,
-		       node_tree,
+			   node_tree,
 			   normal_node,
 			   params.get("detail1_tile_u"),
 			   params.get("detail1_tile_v"))
@@ -445,7 +445,7 @@ def create_materials(f:BufferedReader,
 			detail_diffuse = get_texture(texture_dir, detail_tex.diffuse) if import_textures else None
 			
 			create_mapping_node(nodes, 
-		       node_tree, 
+			   node_tree, 
 			   detail_diffuse_node, 
 			   params.get(f"detail{detail_tex.idx}_tile_u"),
 			   params.get(f"detail{detail_tex.idx}_tile_v"))
@@ -509,19 +509,23 @@ def load_materials(f:BufferedReader,
 
 
 class VertexRemapper:
-	def __init__(self, verts:tuple, uvs:tuple):
+	def __init__(self, verts:tuple, uvs:tuple, normals:tuple):
 		self.vert_remap:dict[int, int] = {}
 		self.verts = []
 		self.uvs = []
+		self.normals = []
 		self.__vert_idx = 0
 
 		self.__verts = verts
 		self.__uvs = uvs
+		self.__normals = normals
 	
 	def get_remapped_idx(self, idx:int):
 		if not idx in self.vert_remap:
 			self.vert_remap[idx] = self.__vert_idx
+
 			self.verts.append(self.__verts[idx])
+			self.normals.append(self.__normals[idx])
 			self.uvs.append(self.__uvs[idx])
 
 			self.__vert_idx += 1
@@ -534,16 +538,16 @@ class VertexRemapper:
 				self.get_remapped_idx(face[2]))
 	
 	def remap_object(self, faces:tuple):
-		return tuple(self.get_remapped_face(face) for face in faces), self.verts, self.uvs
+		return tuple(self.get_remapped_face(face) for face in faces), self.verts, self.uvs, self.normals
 
 
-def create_mesh(f:BufferedReader, name:str, global_verts:tuple, global_uvs:tuple):
+def create_mesh(f:BufferedReader, name:str, global_verts:tuple, global_uvs:tuple, global_normals:tuple):
 	face_count = readInt(f)
 	faces = tuple(unpack("III", f.read(0xC)) for _ in range(face_count))
 
-	remapper = VertexRemapper(global_verts, global_uvs)
+	remapper = VertexRemapper(global_verts, global_uvs, global_normals)
 	
-	obj_faces, obj_verts, obj_uvs = remapper.remap_object(faces)
+	obj_faces, obj_verts, obj_uvs, obj_normals = remapper.remap_object(faces)
 
 	mesh = bpy.data.meshes.new(name)
 	mesh.from_pydata(obj_verts, [], obj_faces)
@@ -552,6 +556,9 @@ def create_mesh(f:BufferedReader, name:str, global_verts:tuple, global_uvs:tuple
 	for loop in mesh.loops:
 		uv_layer[loop.index].uv = obj_uvs[loop.vertex_index]
 	
+	mesh.normals_split_custom_set_from_vertices(obj_normals)
+	# mesh.use_auto_smooth = True
+
 	return mesh
 
 def assign_mesh_materials(f:BufferedReader, mesh:bpy.types.Mesh):
@@ -583,11 +590,11 @@ def assign_material(mesh:bpy.types.Mesh, material:bpy.types.Material, start_idx:
 		for k in range(start_idx, end_idx):
 			mesh.polygons[k].material_index = material
 
-def create_object(f:BufferedReader, global_verts:tuple, global_uvs:tuple):
+def create_object(f:BufferedReader, global_verts:tuple, global_uvs:tuple, global_normals:tuple):
 	obj_name = readString(f)
 	skinned = readInt(f) == 1
 	
-	mesh = create_mesh(f, obj_name, global_verts, global_uvs)
+	mesh = create_mesh(f, obj_name, global_verts, global_uvs, global_normals)
 	assign_mesh_materials(f, mesh)
 	
 	mesh.validate()
@@ -711,6 +718,7 @@ def load(filepath:str,
 		vert_count = readInt(f)
 
 		verts = tuple(unpack("fff", f.read(0xC)) for _ in range(vert_count))
+		normals = tuple(unpack("fff", f.read(0xC)) for _ in range(vert_count))
 		uvs = tuple(unpack("ff", f.read(0x8)) for _ in range(vert_count))
 		
 		obj_count = readInt(f)
@@ -737,7 +745,7 @@ def load(filepath:str,
 			set_skeleton_transform(skeleton)
 		
 		for _ in range(obj_count):
-			ob, skinned = create_object(f, verts, uvs)
+			ob, skinned = create_object(f, verts, uvs, normals)
 			
 			collection.objects.link(ob)
 			

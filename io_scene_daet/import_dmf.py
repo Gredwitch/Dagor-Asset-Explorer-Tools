@@ -550,7 +550,7 @@ def create_mesh(f:BufferedReader, name:str, global_verts:tuple, global_uvs:tuple
 	obj_faces, obj_verts, obj_uvs, obj_normals = remapper.remap_object(faces)
 
 	mesh = bpy.data.meshes.new(name)
-	mesh.from_pydata(obj_verts, [], obj_faces)
+	mesh.from_pydata(obj_verts, [], obj_faces, False)
 	
 	uv_layer = mesh.uv_layers.new().data
 	for loop in mesh.loops:

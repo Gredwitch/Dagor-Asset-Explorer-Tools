@@ -691,7 +691,7 @@ def load(filepath:str,
 	
 	with open(filepath, "rb") as file:
 		if file.read(4) != DMF_MAGIC:
-			raise Exception("Invalid magic, not a DMF?")
+			raise Exception("Invalid magic, unsupported DMF version? Update your tools, export the model and try again.")
 		else:
 			file.seek(0, 0)
 		

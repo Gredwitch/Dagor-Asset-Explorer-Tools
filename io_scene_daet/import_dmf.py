@@ -744,13 +744,23 @@ def load(filepath:str,
 		if skeleton is not None and apply_scale:
 			set_skeleton_transform(skeleton)
 		
-		for _ in range(obj_count):
+		all_objects = [None] * obj_count
+		
+		for i in range(obj_count):
 			ob, skinned = create_object(f, verts, uvs, normals)
+			
+			all_objects[i] = ob
 			
 			collection.objects.link(ob)
 			
 			set_object_transform(ob, skeleton, apply_scale, skinned, relative_parenting)
-
+		
+		set_mode_safe("OBJECT")
+		deselect_all()
+		
+		for ob in all_objects:
+			ob.select_set(True)
+		
 
 	if update_viewlayer:
 		view_layer.update()
